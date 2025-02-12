@@ -60,7 +60,7 @@ class KarooRadarExtension : KarooExtension("kxradar", "1.0.2") {
                             Log.i(TAG, "Threar")
                             karooSystem.beep(settings.threatLevelPattern)
                         }
-                        if (radarThreat && threatLevel == 0.0) {
+                        if (radarThreat && threatLevel == 0.0 && settings.allClearSound) {
                             Log.i(TAG, "Clear")
                             karooSystem.simpleBeep(settings.threatPassedLevelPattern)
                         }

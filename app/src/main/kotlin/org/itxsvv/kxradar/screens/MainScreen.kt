@@ -1,12 +1,9 @@
 package org.itxsvv.kxradar.screens
 
-import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -17,13 +14,9 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusDirection
-import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
@@ -42,19 +35,24 @@ fun MainScreen() {
     val karooSystem = remember { KarooSystemService(ctx) }
     var savedDialogVisible by remember { mutableStateOf(false) }
 
-    var uiThreatLevelPattern by remember { mutableStateOf(listOf(BeepPattern(200, 100, 0))) }
-    var uiThreatPassedLevelPattern by remember { mutableStateOf(SimpleBeepPattern(200, 100)) }
+    var uiThreatLevelPattern by remember { mutableStateOf(emptyList<BeepPattern>()) }
+    var uiThreatPassedLevelPattern by remember { mutableStateOf<SimpleBeepPattern?>(null) }
+    var uiAllClearSoundEnabled by remember { mutableStateOf(true) }
     var uiInRideOnlyEnabled by remember { mutableStateOf(true) }
     var uiBeepEnabled by remember { mutableStateOf(true) }
+
+    val maxBeeps = 5
 
     fun saveUISettings() {
         scope.launch {
             val radarSettings = RadarSettings(
                 threatLevelPattern = uiThreatLevelPattern,
-                threatPassedLevelPattern = uiThreatPassedLevelPattern,
+                threatPassedLevelPattern = uiThreatPassedLevelPattern ?: SimpleBeepPattern(0, 0),
+                allClearSound = uiAllClearSoundEnabled,
                 inRideOnly = uiInRideOnlyEnabled,
                 enabled = uiBeepEnabled
             )
+
             saveSettings(ctx, radarSettings)
         }
     }
@@ -63,6 +61,7 @@ fun MainScreen() {
         ctx.streamSettings().collect { settings ->
             uiThreatLevelPattern = settings.threatLevelPattern
             uiThreatPassedLevelPattern = settings.threatPassedLevelPattern
+            uiAllClearSoundEnabled = settings.allClearSound
             uiInRideOnlyEnabled = settings.inRideOnly
             uiBeepEnabled = settings.enabled
         }
@@ -100,7 +99,6 @@ fun MainScreen() {
                     beepPattern = beepPattern,
                     index = index,
                     pattern = pattern,
-                    focusManager = focusManager,
                     onFreqChange = { newFreq ->
                         uiThreatLevelPattern = uiThreatLevelPattern.toMutableList().apply {
                             this[index] = BeepPattern(
@@ -130,17 +128,19 @@ fun MainScreen() {
                         uiThreatLevelPattern = uiThreatLevelPattern.toMutableList().apply {
                             removeAt(index)
                         }
-                    }
+                    },
+                    maxBeeps = maxBeeps
                 )
             }
-            if (uiThreatLevelPattern.size < 4) {
+            if (uiThreatLevelPattern.size < maxBeeps) {
                 FilledTonalButton(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .padding(4.dp, 0.dp)
                         .height(50.dp),
                     onClick = {
                         uiThreatLevelPattern = uiThreatLevelPattern.toMutableList().apply {
-                            this[lastIndex] = this[lastIndex].copy(delay = 500)
+                            this[lastIndex] = this[lastIndex].copy(delay = 300)
                             add(BeepPattern(200, 100, 0))
                         }
                     }
@@ -154,6 +154,7 @@ fun MainScreen() {
             FilledTonalButton(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(4.dp, 0.dp)
                     .height(50.dp),
                 onClick = {
                     scope.launch {
@@ -175,35 +176,52 @@ fun MainScreen() {
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("All clear sound (0 disable)")
-            BeepPatternFields(
-                beepPattern = uiThreatPassedLevelPattern,
-                index = 0,
-                pattern = pattern,
-                onFreqChange = { newFreq ->
-                    uiThreatPassedLevelPattern = uiThreatPassedLevelPattern.copy(freq = newFreq)
-                },
-                onDurationChange = { newDuration ->
-                    uiThreatPassedLevelPattern =
-                        uiThreatPassedLevelPattern.copy(duration = newDuration)
-                },
-                focusManager = focusManager
-            )
-
-            FilledTonalButton(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(50.dp),
-                onClick = {
-                    scope.launch {
-                        karooSystem.simpleBeep(uiThreatPassedLevelPattern)
-                    }
-                }
+                    .fillMaxSize()
+                    .padding(8.dp, 0.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Icon(Icons.Default.PlayArrow, contentDescription = "Play")
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Play")
+                Switch(
+                    checked = uiAllClearSoundEnabled,
+                    onCheckedChange = {
+                        uiAllClearSoundEnabled = it
+                    }
+                )
+                Text(modifier = Modifier.weight(1f), text = "All clear sound")
             }
+            if (uiThreatPassedLevelPattern != null) {
+                BeepPatternFields(
+                    beepPattern = uiThreatPassedLevelPattern!!,
+                    index = 0,
+                    pattern = pattern,
+                    onFreqChange = { newFreq ->
+                        uiThreatPassedLevelPattern = uiThreatPassedLevelPattern!!.copy(freq = newFreq)
+                    },
+                    onDurationChange = { newDuration ->
+                        uiThreatPassedLevelPattern =
+                            uiThreatPassedLevelPattern!!.copy(duration = newDuration)
+                    },
+                )
+
+                FilledTonalButton(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(4.dp, 0.dp)
+                        .height(50.dp),
+                    onClick = {
+                        scope.launch {
+                            karooSystem.simpleBeep(uiThreatPassedLevelPattern!!)
+                        }
+                    }
+                ) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = "Play")
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Play")
+                }
+                }
         }
         HorizontalDivider(thickness = 2.dp)
         Column(
@@ -213,15 +231,20 @@ fun MainScreen() {
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxSize()
+                    .padding(16.dp, 0.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 Switch(
-                    modifier = Modifier.weight(1f),
                     checked = uiInRideOnlyEnabled,
                     onCheckedChange = {
                         uiInRideOnlyEnabled = it
                     }
                 )
-                Spacer(modifier = Modifier.width(12.dp))
                 Text(modifier = Modifier.weight(1f), text = "In-ride only")
             }
         }
@@ -237,6 +260,7 @@ fun MainScreen() {
             FilledTonalButton(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(8.dp, 0.dp)
                     .height(50.dp),
                 onClick = {
                 scope.launch {
@@ -253,11 +277,12 @@ fun MainScreen() {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxSize(),
-            verticalAlignment = Alignment.CenterVertically
+                .fillMaxSize()
+                .padding(16.dp, 0.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Switch(
-                modifier = Modifier.weight(1f),
                 checked = uiBeepEnabled,
                 onCheckedChange = {
                     uiBeepEnabled = it
@@ -266,7 +291,6 @@ fun MainScreen() {
                     }
                 }
             )
-            Spacer(modifier = Modifier.width(12.dp))
             Text(modifier = Modifier.weight(1f), text = "Enabled")
         }
         Spacer(modifier = Modifier.size(2.dp))
@@ -284,18 +308,17 @@ fun MainScreen() {
     }
 }
 
-@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun BeepPatternFields(
     beepPattern: SimpleBeepPattern,
     index: Int,
     pattern: Regex,
-    focusManager: FocusManager,
     onFreqChange: (Int) -> Unit,
     onDurationChange: (Int) -> Unit,
     onDelayChange: (Int) -> Unit = {},
     showRemove: Boolean = false,
-    onRemoveBeep: () -> Unit = {}
+    onRemoveBeep: () -> Unit = {},
+    maxBeeps: Int = 5,
 ) {
     Card(
         modifier = Modifier.padding(8.dp),
@@ -316,50 +339,54 @@ fun BeepPatternFields(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
+                var freqText by remember { mutableStateOf(beepPattern.freq.toString()) }
                 OutlinedTextField(
-                    value = beepPattern.freq.toString(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    value = freqText,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Done
+                    ),
                     onValueChange = { newText ->
-                        if (newText.isNotEmpty() && newText.matches(pattern)) {
-                            onFreqChange(newText.toInt())
+                        if (newText.matches(pattern)) {
+                            onFreqChange(if (newText.isEmpty()) 0 else newText.toInt())
+                            freqText = newText
                         }
                     },
                     modifier = Modifier
                         .weight(1f)
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onDoubleTap = {
-                                    focusManager.clearFocus()
-                                    focusManager.moveFocus(FocusDirection.Enter)
-                                }
-                            )
+                        .onFocusChanged { focusState ->
+                            if (!focusState.isFocused && beepPattern.freq == 0) {
+                                freqText = "0"
+                            }
                         },
                     singleLine = true,
-                    label = { Text(text = "Freq.") }
+                    label = { Text(text = "Freq.") },
                 )
+                var durationText by remember { mutableStateOf(beepPattern.duration.toString()) }
                 OutlinedTextField(
-                    value = beepPattern.duration.toString(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    value = durationText,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Decimal,
+                        imeAction = ImeAction.Done
+                    ),
                     onValueChange = { newText ->
-                        if (newText.isNotEmpty() && newText.matches(pattern)) {
-                            onDurationChange(newText.toInt())
+                        if (newText.matches(pattern)) {
+                            onDurationChange(if (newText.isEmpty()) 0 else newText.toInt())
+                            durationText = newText
                         }
                     },
                     modifier = Modifier
                         .weight(1f)
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onDoubleTap = {
-                                    focusManager.clearFocus()
-                                    focusManager.moveFocus(FocusDirection.Enter)
-                                }
-                            )
+                        .onFocusChanged { focusState ->
+                            if (!focusState.isFocused && beepPattern.duration == 0) {
+                                durationText = "0"
+                            }
                         },
                     singleLine = true,
-                    label = { Text(text = "Dur.") }
+                    label = { Text(text = "Dur.") },
                 )
             }
-            if (beepPattern is BeepPattern && index < 3) {
+            if (beepPattern is BeepPattern && index < maxBeeps - 1) {
                 var delayText by remember { mutableStateOf(beepPattern.delay.toString()) }
                 OutlinedTextField(
                     value = delayText,
@@ -367,39 +394,21 @@ fun BeepPatternFields(
                         keyboardType = KeyboardType.Number,
                         imeAction = ImeAction.Done
                     ),
-                    keyboardActions = KeyboardActions(
-                        onDone = {
-                            if (beepPattern.delay < 300) {
-                                onDelayChange(300)
-                                delayText = "300"
-                            }
-                            focusManager.clearFocus()
-                        }
-                    ),
                     onValueChange = { newText ->
-                        if (newText.isNotEmpty() && newText.matches(pattern)) {
+                        if (newText.matches(pattern)) {
+                            onDelayChange(if (newText.isEmpty()) 0 else newText.toInt())
                             delayText = newText
-                            onDelayChange(newText.toInt())
                         }
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onDoubleTap = {
-                                    focusManager.clearFocus()
-                                    focusManager.moveFocus(FocusDirection.Enter)
-                                }
-                            )
-                        }
                         .onFocusChanged { focusState ->
-                            if (!focusState.isFocused && beepPattern.delay < 300) {
-                                onDelayChange(300)
-                                delayText = "300"
+                            if (!focusState.isFocused && beepPattern.delay == 0) {
+                                delayText = "0"
                             }
                         },
                     singleLine = true,
-                    label = { Text(text = "Delay") }
+                    label = { Text(text = "Delay") },
                 )
             }
             if (showRemove) {

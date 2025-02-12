@@ -45,6 +45,7 @@ data class BeepPattern(
 data class RadarSettings(
     val threatLevelPattern: List<BeepPattern>,
     val threatPassedLevelPattern: SimpleBeepPattern,
+    val allClearSound: Boolean = false,
     val inRideOnly: Boolean = false,
     val enabled: Boolean = true,
 ) {
@@ -107,7 +108,7 @@ fun KarooSystemService.beep(pattern: List<BeepPattern>) {
             PlayBeepPattern.Tone(null, beepPattern.delay)
         )
     }
-    
+
     dispatch(PlayBeepPattern(playBeepPatternTones))
 }
 
