@@ -12,9 +12,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
@@ -34,7 +38,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -45,9 +48,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.itxsvv.kxradar.Beep
 import org.itxsvv.kxradar.RadarSettings
+import org.itxsvv.kxradar.SimpleBeep
 import org.itxsvv.kxradar.beep
 import org.itxsvv.kxradar.saveSettings
 import org.itxsvv.kxradar.streamSettings
+import androidx.compose.ui.text.input.ImeAction
+import org.itxsvv.kxradar.simpleBeep
+
 
 @Composable
 fun MainScreen() {
@@ -58,16 +65,20 @@ fun MainScreen() {
     val karooSystem = remember { KarooSystemService(ctx) }
     var savedDialogVisible by remember { mutableStateOf(false) }
 
-    var uiThreatBeep by remember { mutableStateOf(Beep(200, 100)) }
-    var uiPassedBeep by remember { mutableStateOf(Beep(0, 0)) }
+    var uiThreatBeep by remember { mutableStateOf(emptyList<Beep>()) }
+    var uiPassedBeep by remember { mutableStateOf<SimpleBeep?>(null) }
+    var uiAllClearSoundEnabled by remember { mutableStateOf(true) }
     var uiInRideOnlyEnabled by remember { mutableStateOf(true) }
     var uiBeepEnabled by remember { mutableStateOf(true) }
+
+    var maxBeeps = 5
 
     fun saveUISettings() {
         scope.launch {
             val radarSettings = RadarSettings(
                 threatBeep = uiThreatBeep,
-                passedBeep = uiPassedBeep,
+                passedBeep = uiPassedBeep ?: SimpleBeep(0, 0),
+                allClearSound = uiAllClearSoundEnabled,
                 inRideOnly = uiInRideOnlyEnabled,
                 enabled = uiBeepEnabled
             )
@@ -79,6 +90,7 @@ fun MainScreen() {
         ctx.streamSettings().collect { settings ->
             uiThreatBeep = settings.threatBeep
             uiPassedBeep = settings.passedBeep
+            uiAllClearSoundEnabled = settings.allClearSound
             uiInRideOnlyEnabled = settings.inRideOnly
             uiBeepEnabled = settings.enabled
         }
@@ -88,71 +100,220 @@ fun MainScreen() {
         karooSystem.connect()
     }
 
+    val scrollState = rememberScrollState()
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .fillMaxSize()
             .padding(2.dp)
             .background(MaterialTheme.colorScheme.background)
+            .verticalScroll(scrollState)
             .clickable { focusManager.clearFocus() },
         verticalArrangement = Arrangement.spacedBy(2.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(modifier = Modifier.size(1.dp))
-        Text("Threat sound")
-        DrawBeepPanel(karooSystem, scope, uiThreatBeep, pattern,
-            onDurationChange = { newDur ->
-                uiThreatBeep = uiThreatBeep.copy(duration = newDur)
-            },
-            onFreqChange = { newFreq ->
-                uiThreatBeep = uiThreatBeep.copy(frequency = newFreq)
-            })
-        Text("All clear sound (0 disable)")
-        DrawBeepPanel(karooSystem, scope, uiPassedBeep, pattern,
-            onDurationChange = { newDur ->
-                uiPassedBeep = uiPassedBeep.copy(duration = newDur)
-            },
-            onFreqChange = { newFreq ->
-                uiPassedBeep = uiPassedBeep.copy(frequency = newFreq)
-            })
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Switch(
-                modifier = Modifier.weight(1f),
-                checked = uiInRideOnlyEnabled,
-                onCheckedChange = {
-                    uiInRideOnlyEnabled = it
-                }
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Text(modifier = Modifier.weight(1f), text = "In-ride only")
-        }
-        FilledTonalButton(modifier = Modifier
-            .fillMaxWidth()
-            .height(50.dp), onClick = {
-            scope.launch {
-                saveUISettings()
-                savedDialogVisible = true
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxSize()
+                .padding(8.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Spacer(modifier = Modifier.size(1.dp))
+            Text("Threat sound")
+            uiThreatBeep.forEachIndexed { index, beep ->
+                DrawBeepPanel(
+                    beep,
+                    pattern,
+                    onDurationChange = { newDur ->
+                        uiThreatBeep = uiThreatBeep.toMutableList().apply {
+                            this[index] = Beep(
+                                frequency = this[index].frequency,
+                                duration = newDur,
+                                delay = this[index].delay
+                            )
+                        }
+                    },
+                    onFreqChange = { newFreq ->
+                        uiThreatBeep = uiThreatBeep.toMutableList().apply {
+                            this[index] = Beep(
+                                frequency = newFreq,
+                                duration = this[index].duration,
+                                delay = this[index].delay
+                            )
+                        }
+                    },
+                    maxBeeps = maxBeeps,
+                    index = index,
+                    showRemove = uiThreatBeep.size > 1,
+                    onRemoveBeep = {
+                        uiThreatBeep = uiThreatBeep.toMutableList().apply {
+                            removeAt(index)
+                        }
+                    },
+                )
             }
-        }) {
-            Icon(Icons.Default.Done, contentDescription = "")
-            Spacer(modifier = Modifier.width(5.dp))
-            Text("Save")
+            if (uiThreatBeep.size < maxBeeps) {
+                FilledTonalButton(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(4.dp, 0.dp)
+                        .height(50.dp),
+                    onClick = {
+                        uiThreatBeep = uiThreatBeep.toMutableList().apply {
+                            this[lastIndex] = this[lastIndex].copy(delay = 300)
+                            add(Beep(200, 100, 0))
+                        }
+                    }
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Add beep")
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Add beep")
+                }
+            }
+            Spacer(modifier = Modifier.size(8.dp))
+            FilledTonalButton(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(4.dp, 0.dp)
+                    .height(50.dp),
+                onClick = {
+                    scope.launch {
+                        karooSystem.beep(uiThreatBeep)
+                    }
+                }
+            ) {
+                Icon(Icons.Default.PlayArrow, contentDescription = "Play")
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Play")
+            }
         }
         HorizontalDivider(thickness = 2.dp)
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxSize()
+                .padding(8.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxSize()
+                    .padding(8.dp, 0.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Switch(
+                    checked = uiAllClearSoundEnabled,
+                    onCheckedChange = {
+                        uiAllClearSoundEnabled = it
+                    }
+                )
+                Text(modifier = Modifier.weight(1f), text = "All clear sound")
+            }
+            if (uiPassedBeep != null) {
+                DrawBeepPanel(
+                    beep = uiPassedBeep!!,
+                    index = 0,
+                    pattern = pattern,
+                    onFreqChange = { newFreq ->
+                        uiPassedBeep = uiPassedBeep!!.copy(frequency = newFreq)
+                    },
+                    onDurationChange = { newDuration ->
+                        uiPassedBeep =
+                            uiPassedBeep!!.copy(duration = newDuration)
+                    },
+                )
+
+                FilledTonalButton(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(4.dp, 0.dp)
+                        .height(50.dp),
+                    onClick = {
+                        scope.launch {
+                            karooSystem.simpleBeep(uiPassedBeep!!)
+                        }
+                    }
+                ) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = "Play")
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Play")
+                }
+            }
+        }
+        HorizontalDivider(thickness = 2.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxSize()
+                    .padding(16.dp, 0.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Switch(
+                    checked = uiInRideOnlyEnabled,
+                    onCheckedChange = {
+                        uiInRideOnlyEnabled = it
+                    }
+                )
+                Text(modifier = Modifier.weight(1f), text = "In-ride only")
+            }
+        }
+        HorizontalDivider(thickness = 2.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxSize()
+                .padding(4.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            FilledTonalButton(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp, 0.dp)
+                    .height(50.dp),
+                onClick = {
+                    scope.launch {
+                        saveUISettings()
+                        savedDialogVisible = true
+                    }
+                }) {
+                Icon(Icons.Default.Done, contentDescription = "Save")
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Save")
+            }
+        }
+        HorizontalDivider(thickness = 2.dp)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxSize()
+                .padding(16.dp, 0.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             Switch(
-                modifier = Modifier.weight(1f),
                 checked = uiBeepEnabled,
                 onCheckedChange = {
                     uiBeepEnabled = it
-                    scope.launch {
-                        saveUISettings()
-                    }
                 }
             )
-            Spacer(modifier = Modifier.width(10.dp))
             Text(modifier = Modifier.weight(1f), text = "Enabled")
         }
+        Spacer(modifier = Modifier.size(2.dp))
 
         if (savedDialogVisible) {
             AlertDialog(onDismissRequest = { savedDialogVisible = false },
@@ -169,52 +330,83 @@ fun MainScreen() {
 
 @Composable
 fun DrawBeepPanel(
-    karooSystem: KarooSystemService,
-    scope: CoroutineScope,
-    beep: Beep,
+    beep: SimpleBeep,
     pattern: Regex,
     onFreqChange: (Int) -> Unit,
     onDurationChange: (Int) -> Unit,
+    onDelayChange: (Int) -> Unit = {},
+    maxBeeps: Int = 5,
+    index: Int = 0,
+    showRemove: Boolean = false,
+    onRemoveBeep: () -> Unit = {}
 ) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(3.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(3.dp)
+            .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        OutlinedTextField(
-            value = beep.frequency.toString(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            onValueChange = { newFreq ->
-                if (!newFreq.isEmpty() && newFreq.matches(pattern)) {
-                    onFreqChange(newFreq.replace("\n", "").toInt())
-                }
-            },
-            modifier = Modifier.weight(1f),
-            singleLine = true,
-            label = { Text(text = "Freq.") }
-        )
-        OutlinedTextField(
-            value = beep.duration.toString(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            onValueChange = { newDuration ->
-                if (!newDuration.isEmpty() && newDuration.matches(pattern)) {
-                    onDurationChange((newDuration.replace("\n", "")).toInt())
-                }
-            },
-            modifier = Modifier.weight(1f),
-            singleLine = true,
-            label = { Text(text = "Dur.") }
-        )
-        FilledTonalButton(modifier = Modifier
-            .weight(0.8f)
-            .height(65.dp), shape = RoundedCornerShape(8.dp), onClick = {
-            scope.launch {
-                karooSystem.beep(beep.frequency, beep.duration)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            OutlinedTextField(
+                value = beep.frequency.toString(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                onValueChange = { newFreq ->
+                    if (!newFreq.isEmpty() && newFreq.matches(pattern)) {
+                        onFreqChange(newFreq.replace("\n", "").toInt())
+                    }
+                },
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+                label = { Text(text = "Freq.") }
+            )
+            OutlinedTextField(
+                value = beep.duration.toString(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                onValueChange = { newDuration ->
+                    if (!newDuration.isEmpty() && newDuration.matches(pattern)) {
+                        onDurationChange((newDuration.replace("\n", "")).toInt())
+                    }
+                },
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+                label = { Text(text = "Dur.") }
+            )
+        }
+
+        if (beep is Beep && index < maxBeeps - 1) {
+            OutlinedTextField(
+                value = beep.delay.toString(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                onValueChange = { newDelay ->
+                    if (!newDelay.isEmpty() && newDelay.matches(pattern)) {
+                        onDelayChange((newDelay.replace("\n", "")).toInt())
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth(),
+                singleLine = true,
+                label = { Text(text = "Delay") },
+            )
+        }
+        if (showRemove) {
+            FilledTonalButton(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(0.dp, 8.dp, 0.dp, 4.dp)
+                    .height(50.dp),
+                onClick = { onRemoveBeep() }
+            ) {
+                Icon(Icons.Default.Delete, contentDescription = "Delete")
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Delete")
             }
-        }) {
-            Icon(Icons.Default.PlayArrow, contentDescription = "")
         }
     }
 }

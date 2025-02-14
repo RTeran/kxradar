@@ -50,12 +50,12 @@ class KarooRadarExtension : KarooExtension("kxradar", "1.0.3") {
                         if (!radarThreat && threatLevel > 0) {
                             Log.i(TAG, "Threat detected")
                             passedDelay = 0
-                            karooSystem.beep(settings.threatBeep.frequency, settings.threatBeep.duration)
+                            karooSystem.beep(settings.threatBeep)
                         }
-                        if(passedDelay > 0 && System.currentTimeMillis() - passedDelay > DELAY_BEEP_ALL_CLEAR) {
+                        if(passedDelay > 0 && settings.allClearSound && System.currentTimeMillis() - passedDelay > DELAY_BEEP_ALL_CLEAR) {
                             Log.i(TAG, "All-clear")
                             passedDelay = 0;
-                            karooSystem.beep(settings.passedBeep.frequency, settings.passedBeep.duration)
+                            karooSystem.simpleBeep(settings.passedBeep)
                         }
                         if (radarThreat && threatLevel == 0.0) {
                             passedDelay = System.currentTimeMillis()

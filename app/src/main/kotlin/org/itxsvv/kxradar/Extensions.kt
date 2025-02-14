@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -24,15 +25,27 @@ val jsonWithUnknownKeys = Json { ignoreUnknownKeys = true }
 val settingsKey = stringPreferencesKey("settings_v2")
 
 @Serializable
+open class SimpleBeep(
+    open val frequency: Int,
+    open val duration: Int,
+){
+    fun copy(frequency: Int = this.frequency, duration: Int = this.duration): SimpleBeep {
+        return SimpleBeep(frequency, duration)
+    }
+}
+
+@Serializable
 data class Beep(
-    var frequency: Int,
-    var duration: Int,
-)
+    @SerialName("beep_frequency") override val frequency: Int,
+    @SerialName("beep_duration") override val duration: Int,
+    val delay: Int,
+) : SimpleBeep(frequency, duration)
 
 @Serializable
 data class RadarSettings(
-    val threatBeep: Beep,
-    val passedBeep: Beep,
+    val threatBeep: List<Beep>,
+    val passedBeep: SimpleBeep,
+    val allClearSound: Boolean = false,
     val inRideOnly: Boolean = false,
     val enabled: Boolean = true,
 ) {
@@ -41,8 +54,8 @@ data class RadarSettings(
     }
 
     constructor() : this(
-        Beep(200, 100),
-        Beep(0, 100),
+        listOf(Beep(200, 100, 300)),
+        SimpleBeep(0, 100),
         false, true
     )
 }
@@ -88,10 +101,21 @@ fun KarooSystemService.streamRideState(): Flow<RideState> {
     }
 }
 
-fun KarooSystemService.beep(freq: Int, duration: Int) {
+fun KarooSystemService.beep(pattern: List<Beep>) {
+    val playBeepPatternTones = pattern.flatMap { beepPattern ->
+        listOf(
+            PlayBeepPattern.Tone(beepPattern.frequency, beepPattern.duration),
+            PlayBeepPattern.Tone(null, beepPattern.delay)
+        )
+    }
+
+    dispatch(PlayBeepPattern(playBeepPatternTones))
+}
+
+fun KarooSystemService.simpleBeep(beep: SimpleBeep) {
     dispatch(
         PlayBeepPattern(
-            listOf(PlayBeepPattern.Tone(freq, duration))
+            listOf(PlayBeepPattern.Tone(beep.frequency, beep.duration))
         )
     )
 }
